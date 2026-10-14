@@ -175,6 +175,26 @@
    - Show guidance explaining that criteria are required.
    - Default the UI to recent items/current season.
 
+
+
+   Technical breakdown
+Problem
+The previous default fallback path used offset-based paging in a loop. Because offset pagination on deduped audit entities reprocessed earlier data repeatedly, each additional call could rescan prior rows, increasing DB work significantly in high-history users.
+New execution model
+1.	Read a bounded recent-audit candidate window once (<= 5000).
+2.	Process candidates in-memory in 500-record slices.
+3.	For each slice, query current-season eligible events.
+4.	Stop early once 15 fallback events are collected.
+5.	Preserve deterministic ordering + dedupe by event ID.
+Why this is better
+•	Eliminates repeated audit-reader invocations and offset rescans.
+•	Keeps strict upper bounds (5000 candidates, max 10 eligibility slices).
+•	Maintains existing fallback semantics (15 cap, current-season only, recency order).
+Cost profile (worst-case)
+•	Before: up to 10 audit-reader calls + up to 10 season checks.
+•	After: 1 audit-reader call + up to 10 season checks.
+So we reduced the most expensive repeated part (audit-reader loop) without changing user-facing behavior.
+
 ## Standup phrasing
 
 > I completed backend safeguards for Events high-volume search. The search handler now short-circuits no-criteria requests to a limited recent/default dataset and avoids full-list retrieval. The criteria-based search path remains unchanged, and the targeted handler tests are passing.
